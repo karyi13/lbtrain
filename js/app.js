@@ -376,6 +376,19 @@ function updateKlineChart(code) {
     const candlestickData = validValues.map(v => [v[0], v[1], v[2], v[3]]);
     console.log('candlestickData sample:', candlestickData.slice(0, 3));
 
+    // 获取成交量数据
+    const volumes = klineData.volumes || [];
+    const validVolumes = currentDateIdx >= 0 ? volumes.slice(0, currentDateIdx + 1) : volumes;
+
+    // 计算成交量颜色（上涨为红色，下跌为绿色）
+    const volumeColors = validValues.map((v, i) => {
+        if (i === 0) return v[1] >= v[0] ? '#ff0000' : '#00aa00';
+        return v[1] >= v[0] ? '#ff0000' : '#00aa00';
+    });
+
+    // 过滤有效日期对应的成交量
+    const validVolumeColors = currentDateIdx >= 0 ? volumeColors.slice(0, currentDateIdx + 1) : volumeColors;
+
     const option = {
         tooltip: {
             trigger: 'item',
@@ -385,13 +398,16 @@ function updateKlineChart(code) {
                     return '';
                 }
                 const data = params.data;
+                const dateIndex = params.dataIndex;
+
+                // 获取成交量（所有系列共享同一个dataIndex）
+                const volume = validVolumes[dateIndex] || 0;
 
                 // 检查数据格式：[dateIndex, open, close, low, high]
-                let dateIndex, open, close, low, high;
+                let open, close, low, high;
 
                 if (Array.isArray(data) && data.length >= 5) {
                     // ECharts candlestick with dataIndex
-                    dateIndex = data[0];
                     open = data[1];
                     close = data[2];
                     low = data[3];
@@ -402,7 +418,6 @@ function updateKlineChart(code) {
                     close = data[1];
                     low = data[2];
                     high = data[3];
-                    dateIndex = params.dataIndex;
                 } else {
                     return '数据格式错误';
                 }
@@ -433,51 +448,107 @@ function updateKlineChart(code) {
                         <div>收盘: ${close.toFixed(2)} ${formatChange(close)}</div>
                         <div>最高: ${high.toFixed(2)} ${formatChange(high)}</div>
                         <div>最低: ${low.toFixed(2)} ${formatChange(low)}</div>
+                        <div>成交量: ${(volume / 10000).toFixed(2)}万手</div>
                     </div>
                 `;
             }
         },
-        grid: {
-            left: '10%',
-            right: '10%',
-            top: '10%',
-            bottom: '15%'
-        },
-        xAxis: {
-            type: 'category',
-            data: validDates,
-            boundaryGap: false,
-            axisLine: { onZero: false }
-        },
-        yAxis: {
-            scale: true,
-            splitArea: { show: true }
-        },
+        grid: [
+            {
+                left: '10%',
+                right: '10%',
+                top: '10%',
+                height: '50%'
+            },
+            {
+                left: '10%',
+                right: '10%',
+                top: '65%',
+                height: '20%'
+            }
+        ],
+        xAxis: [
+            {
+                type: 'category',
+                data: validDates,
+                boundaryGap: false,
+                axisLine: { onZero: false },
+                axisLabel: { show: true },
+                min: 'dataMin',
+                max: 'dataMax'
+            },
+            {
+                type: 'category',
+                data: validDates,
+                boundaryGap: false,
+                axisLine: { onZero: false },
+                axisLabel: { show: false },
+                gridIndex: 1,
+                min: 'dataMin',
+                max: 'dataMax'
+            }
+        ],
+        yAxis: [
+            {
+                scale: true,
+                splitArea: { show: true },
+                axisLabel: { show: true }
+            },
+            {
+                scale: true,
+                splitNumber: 2,
+                axisLabel: { show: true },
+                axisLine: { show: false },
+                axisTick: { show: false },
+                splitLine: { show: false },
+                gridIndex: 1,
+                valueFormatter: function(value) {
+                    return (value / 10000).toFixed(0) + '万';
+                }
+            }
+        ],
         dataZoom: [
             {
                 type: 'inside',
                 startValue: calculateZoomStart(validDates.length, 30),
                 endValue: validDates.length - 1,
-                xAxisIndex: 0
+                xAxisIndex: [0, 1]
             },
             {
                 type: 'slider',
                 bottom: 10,
                 startValue: calculateZoomStart(validDates.length, 30),
                 endValue: validDates.length - 1,
-                xAxisIndex: 0
+                xAxisIndex: [0, 1]
             }
         ],
-        series: [{
-            type: 'candlestick',
-            data: candlestickData,
-            itemStyle: {
-                color: '#ff0000',      // 阳线（上涨）红色
-                color0: '#00aa00',     // 阴线（下跌）绿色
-                borderColor: '#ff0000',
-                borderColor0: '#00aa00'
+        series: [
+            {
+                name: 'K线',
+                type: 'candlestick',
+                data: candlestickData,
+                itemStyle: {
+                    color: '#ff0000',      // 阳线（上涨）红色
+                    color0: '#00aa00',     // 阴线（下跌）绿色
+                    borderColor: '#ff0000',
+                    borderColor0: '#00aa00'
+                }
+            },
+            {
+                name: '成交量',
+                type: 'bar',
+                data: validVolumes,
+                itemStyle: {
+                    color: function(params) {
+                        const idx = params.dataIndex;
+                        if (idx >= validValues.length) return '#00aa00';
+                        return validValues[idx][1] >= validValues[idx][0] ? '#ff0000' : '#00aa00';
+                    }
+                },
+                xAxisIndex: 1,
+                yAxisIndex: 1
             }
-        }]
+        ]
     };
 
     console.log('Setting chart option with', candlestickData.length, 'data points');
