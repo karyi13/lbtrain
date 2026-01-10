@@ -71,7 +71,10 @@ async function initApp() {
         // 初始化日期选择器
         initDateSelector();
 
-        // 渲染连板列表
+        // 加载保存的数据（这可能会覆盖日期选择器中设置的日期）
+        loadSavedData();
+
+        // 渲染连板列表（使用最终确定的日期）
         renderLadderList();
 
         // 初始化K线图
@@ -82,9 +85,6 @@ async function initApp() {
 
         // 初始化标签页
         initTabs();
-
-        // 加载保存的数据
-        loadSavedData();
 
         // 更新账户信息
         updateAccountInfo();
@@ -117,7 +117,10 @@ function waitForData() {
 function initDateSelector() {
     const dates = Object.keys(window.LADDER_DATA).sort();
     AppState.availableDates = dates;
-    AppState.currentDate = dates[dates.length - 1]; // 默认最后一天
+
+    // 默认选择最接近今天的真实交易日
+    // 如果今天是交易日且数据存在，则选择今天；否则选择最近的交易日
+    AppState.currentDate = findNearestTradingDay(dates);
 
     const select = document.getElementById('currentDate');
     dates.forEach(date => {
@@ -148,6 +151,37 @@ function initDateSelector() {
             switchDate(AppState.availableDates[idx + 1]);
         }
     });
+}
+
+// 查找最接近今天的交易日
+function findNearestTradingDay(availableDates) {
+    // 获取今天的日期（格式：YYYYMMDD）
+    const today = new Date();
+    const todayStr = formatDateForComparison(today);
+
+    // 检查今天是否在可用数据中
+    if (availableDates.includes(todayStr)) {
+        return todayStr;
+    }
+
+    // 如果今天不在数据中，查找最接近的日期
+    // 优先查找今天之前的日期
+    for (let i = availableDates.length - 1; i >= 0; i--) {
+        if (availableDates[i] <= todayStr) {
+            return availableDates[i];
+        }
+    }
+
+    // 如果没有今天之前的日期，返回最早的一天
+    return availableDates[0];
+}
+
+// 将Date对象格式化为YYYYMMDD字符串
+function formatDateForComparison(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}${month}${day}`;
 }
 
 function switchDate(newDate) {
@@ -1508,17 +1542,26 @@ function loadSavedData() {
             AppState.trades = data.trades || [];
             AppState.conditionOrders = data.conditionOrders || [];
 
-            // 如果保存的日期不在当前数据中，跳转到最后一天
-            if (!AppState.availableDates.includes(data.currentDate)) {
-                AppState.currentDate = AppState.availableDates[AppState.availableDates.length - 1];
-            } else {
+            // 检查是否有保存的日期，如果有且在当前数据中，则使用保存的日期
+            // 否则使用最接近今天的真实交易日
+            if (data.currentDate && AppState.availableDates.includes(data.currentDate)) {
                 AppState.currentDate = data.currentDate;
+            } else {
+                // 如果没有保存的日期或保存的日期不在当前数据中，使用智能选择
+                AppState.currentDate = findNearestTradingDay(AppState.availableDates);
             }
 
             document.getElementById('currentDate').value = AppState.currentDate;
         } catch (e) {
             console.error('加载保存数据失败:', e);
+            // 如果解析失败，使用智能选择
+            AppState.currentDate = findNearestTradingDay(AppState.availableDates);
+            document.getElementById('currentDate').value = AppState.currentDate;
         }
+    } else {
+        // 如果没有保存的数据，使用智能选择
+        AppState.currentDate = findNearestTradingDay(AppState.availableDates);
+        document.getElementById('currentDate').value = AppState.currentDate;
     }
 }
 
