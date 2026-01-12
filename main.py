@@ -230,6 +230,39 @@ def get_thread_api():
         thread_local.api = None
     return thread_local.api
 
+
+def _disconnect_all_tdx_connections():
+    """
+    断开所有 PyTDX 连接，防止程序因心跳线程而无法退出
+    """
+    try:
+        # 关闭 thread_local 中的 API 连接
+        if hasattr(thread_local, 'api') and thread_local.api:
+            try:
+                thread_local.api.disconnect()
+                logger.debug("Disconnected thread_local TDX API")
+            except:
+                pass
+            thread_local.api = None
+
+        # 关闭服务中的连接（如果存在）
+        data_fetcher = container.get('data_fetcher')
+        if hasattr(data_fetcher, 'composite_fetcher') and data_fetcher.composite_fetcher:
+            composite = data_fetcher.composite_fetcher
+            if hasattr(composite, 'pytdx_fetcher') and composite.pytdx_fetcher:
+                if hasattr(composite.pytdx_fetcher, 'api') and composite.pytdx_fetcher.api:
+                    try:
+                        composite.pytdx_fetcher.api.disconnect()
+                        logger.debug("Disconnected pytdx_fetcher API")
+                    except:
+                        pass
+                    composite.pytdx_fetcher.api = None
+
+        logger.info("All TDX connections disconnected")
+    except Exception as e:
+        logger.warning(f"Error disconnecting TDX connections: {e}")
+
+
 class DataFetcher:
     def __init__(self, output_file=DEFAULT_OUTPUT_FILE, data_fetcher_service=None, data_storage=None):
         # Use injected service or get from container
@@ -425,6 +458,9 @@ class DataFetcher:
 
                 if (i + 1) % 100 == 0:
                     logger.info(f"Processed {i + 1}/{len(stocks)} stocks...")
+
+        # 断开所有 PyTDX 连接，防止程序不退出
+        _disconnect_all_tdx_connections()
 
         if all_data:
             new_data_df = pd.concat(all_data, ignore_index=True)
@@ -1081,6 +1117,7 @@ def main():
             end_date=args.end_date,
             incremental=not args.full_refresh
         )
+        _disconnect_all_tdx_connections()
     elif args.command == 'analyze':
         analyzer = Analyzer(input_file=args.input_file)
         analyzer.process(chunk_size=args.chunk_size)
@@ -1113,6 +1150,9 @@ def main():
 
         logger.info("完整分析流程完成！")
 
+        # 断开所有连接（已经在内层调用，这里再次确保）
+        _disconnect_all_tdx_connections()
+
 
 def save_monitoring_metrics():
     """保存监控指标"""
@@ -1124,6 +1164,10 @@ def save_monitoring_metrics():
 
 
 if __name__ == "__main__":
-    main()
-    # 保存监控指标
-    save_monitoring_metrics()
+    try:
+        main()
+    finally:
+        # 确保程序退出前断开所有 TDX 连接
+        _disconnect_all_tdx_connections()
+        # 保存监控指标
+        save_monitoring_metrics()

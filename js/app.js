@@ -1939,16 +1939,15 @@ function resetSystem(saveData = false) {
     renderNextDayActions();
     updateSummaryStats();
 
+    // 更新股票信息显示
     document.getElementById('selectedStock').innerHTML = '<p>请从左侧选择一只股票</p>';
     document.getElementById('stockInfo').innerHTML = '<h3 id="stockName">选择一只股票查看K线</h3>';
 
-    // 清空K线图
-    if (AppState.klineChart) {
-        AppState.klineChart.clear();
-    }
-
     // 清空本地存储
     localStorage.removeItem('tradeSimData');
+
+    // 保存重置后的状态
+    saveData();
 
     hideResetModal();
     showToast('系统已重置', 'success');
