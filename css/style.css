@@ -77,6 +77,42 @@ body {
     border-radius: 4px;
 }
 
+.btn-reset {
+    background: var(--danger-color);
+    margin-left: 15px;
+}
+
+.reset-options {
+    padding: 20px 0;
+}
+
+.reset-options p {
+    text-align: center;
+    margin-bottom: 20px;
+    font-size: 15px;
+}
+
+.reset-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.reset-buttons .btn {
+    width: 100%;
+    padding: 10px;
+}
+
+#btnResetSave {
+    background: var(--success-color);
+    color: white;
+}
+
+#btnResetCancel {
+    background: var(--text-secondary);
+    color: white;
+}
+
 .account-info strong {
     color: var(--warning-color);
 }
@@ -701,6 +737,24 @@ body {
     border-bottom: 1px solid var(--border-color);
 }
 
+.tab-buttons.nav-buttons {
+    border-bottom: none;
+    margin-left: auto;
+    align-items: center;
+}
+
+.current-date-bottom {
+    margin-right: 15px;
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+.tab-buttons.nav-buttons .btn {
+    background: var(--primary-color);
+    color: white;
+    margin-left: 8px;
+}
+
 .tab-btn {
     padding: 12px 24px;
     border: none;
@@ -733,6 +787,8 @@ body {
 
 .tab-contents {
     padding: 15px;
+    max-height: 400px;
+    overflow-y: auto;
 }
 
 .tab-content {
@@ -768,11 +824,21 @@ body {
 }
 
 .data-table .profit {
-    color: var(--success-color);
+    color: var(--danger-color);
 }
 
 .data-table .loss {
-    color: var(--danger-color);
+    color: var(--success-color);
+}
+
+.data-table .clickable-cell {
+    color: var(--primary-color);
+    cursor: pointer;
+    text-decoration: underline;
+}
+
+.data-table .clickable-cell:hover {
+    color: #1558b0;
 }
 
 /* 收益统计 */

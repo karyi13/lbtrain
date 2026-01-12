@@ -114,6 +114,22 @@ function waitForData() {
 }
 
 // ==================== 日期管理 ====================
+// 全局函数：导航到上一日
+window.goToPrevDay = function() {
+    const idx = AppState.availableDates.indexOf(AppState.currentDate);
+    if (idx > 0) {
+        switchDate(AppState.availableDates[idx - 1]);
+    }
+};
+
+// 全局函数：导航到下一日
+window.goToNextDay = function() {
+    const idx = AppState.availableDates.indexOf(AppState.currentDate);
+    if (idx < AppState.availableDates.length - 1) {
+        switchDate(AppState.availableDates[idx + 1]);
+    }
+};
+
 function initDateSelector() {
     const dates = Object.keys(window.LADDER_DATA).sort();
     AppState.availableDates = dates;
@@ -137,20 +153,16 @@ function initDateSelector() {
         switchDate(e.target.value);
     });
 
-    // 上一日/下一日按钮
-    document.getElementById('prevDay').addEventListener('click', () => {
-        const idx = AppState.availableDates.indexOf(AppState.currentDate);
-        if (idx > 0) {
-            switchDate(AppState.availableDates[idx - 1]);
-        }
-    });
+    // 上一日/下一日按钮 - 直接调用全局函数
+    const prevBtn = document.getElementById('prevDay');
+    const nextBtn = document.getElementById('nextDay');
 
-    document.getElementById('nextDay').addEventListener('click', () => {
-        const idx = AppState.availableDates.indexOf(AppState.currentDate);
-        if (idx < AppState.availableDates.length - 1) {
-            switchDate(AppState.availableDates[idx + 1]);
-        }
-    });
+    if (prevBtn) {
+        prevBtn.onclick = window.goToPrevDay;
+    }
+    if (nextBtn) {
+        nextBtn.onclick = window.goToNextDay;
+    }
 }
 
 // 查找最接近今天的交易日
@@ -190,6 +202,7 @@ function switchDate(newDate) {
 
     AppState.currentDate = newDate;
     document.getElementById('currentDate').value = newDate;
+    document.getElementById('currentDateBottom').textContent = formatDate(newDate);
 
     // 渲染连板列表
     renderLadderList();
@@ -207,6 +220,18 @@ function switchDate(newDate) {
 
     // 更新右侧持仓列表
     renderMyPositions();
+
+    // 更新账户信息
+    updateAccountInfo();
+
+    // 更新交易记录（重要！订单执行后需要刷新显示）
+    renderTradeRecords();
+
+    // 更新底部当前持仓
+    renderPositions();
+
+    // 更新条件单列表
+    renderConditionOrders();
 
     saveData();
 }
@@ -618,16 +643,28 @@ function updateStockPanel(stock) {
     const limitUpPrice = Math.round(stock.price * (1 + limitRate) * 100) / 100;
     document.getElementById('limitUpPrice').value = limitUpPrice;
 
-    // 更新次日开盘信息
-    const nextDayOpenChange = stock.nextDayOpenChangePct || 0;
-    const nextDayOpenPrice = stock.price * (1 + nextDayOpenChange / 100);
-    const openChangeEl = document.getElementById('nextDayOpenChange');
-    openChangeEl.textContent = `${nextDayOpenChange >= 0 ? '+' : ''}${nextDayOpenChange.toFixed(2)}%`;
-    openChangeEl.className = nextDayOpenChange >= 0 ? 'positive' : 'negative';
-    document.getElementById('nextDayOpenPrice').textContent = `¥${nextDayOpenPrice.toFixed(2)}`;
+    // 更新次日开盘信息：从K线数据获取当前日期的收盘价和下一日的开盘价
+    let nextDayOpenChangePct = 0;
+    let nextDayOpenPrice = stock.price;
 
-    // 更新买入价格默认值为收盘价
-    document.getElementById('buyPrice').value = stock.price.toFixed(2);
+    if (klineData && klineData.dates && klineData.values) {
+        const targetDate = formatDate(AppState.currentDate);
+        const currentDateIdx = klineData.dates.indexOf(targetDate);
+
+        // 如果找到当前日期，且存在下一日数据
+        if (currentDateIdx >= 0 && currentDateIdx + 1 < klineData.dates.length) {
+            const currentClosePrice = klineData.values[currentDateIdx][1]; // 当前日收盘价
+            const nextDayOpenPriceVal = klineData.values[currentDateIdx + 1][0]; // 下一日开盘价
+
+            nextDayOpenChangePct = ((nextDayOpenPriceVal - currentClosePrice) / currentClosePrice) * 100;
+            nextDayOpenPrice = nextDayOpenPriceVal;
+        }
+    }
+
+    const openChangeEl = document.getElementById('nextDayOpenChange');
+    openChangeEl.textContent = `${nextDayOpenChangePct >= 0 ? '+' : ''}${nextDayOpenChangePct.toFixed(2)}%`;
+    openChangeEl.className = nextDayOpenChangePct >= 0 ? 'positive' : 'negative';
+    document.getElementById('nextDayOpenPrice').textContent = `¥${nextDayOpenPrice.toFixed(2)}`;
 
     // 更新条件单默认价格
     document.getElementById('limitUpPrice').value = limitUpPrice.toFixed(2);
@@ -647,8 +684,17 @@ function updateStockPanel(stock) {
 
 function updatePositionInfo(code) {
     const position = AppState.account.positions[code];
-    const stock = getStockData(code) || { price: 0 };
-    const currentPrice = stock.price;
+    const klineData = window.KLINE_DATA_GLOBAL[code];
+
+    // 从K线数据中获取当前日期的价格
+    let currentPrice = position ? position.cost : 0;
+    if (klineData && klineData.dates && klineData.values) {
+        const targetDate = formatDate(AppState.currentDate);
+        const dateIdx = klineData.dates.indexOf(targetDate);
+        if (dateIdx >= 0 && klineData.values[dateIdx]) {
+            currentPrice = klineData.values[dateIdx][1]; // 收盘价
+        }
+    }
 
     const quantityEl = document.getElementById('holdQuantity');
     const costEl = document.getElementById('holdCost');
@@ -661,7 +707,7 @@ function updatePositionInfo(code) {
 
         const profit = (currentPrice - position.cost) * position.quantity;
         profitEl.textContent = `${profit >= 0 ? '+' : ''}${profit.toFixed(2)}`;
-        profitEl.className = profit >= 0 ? 'profit' : 'loss';
+        profitEl.className = profit >= 0 ? 'loss' : 'profit';
 
         // 检查是否可卖出（T+1）
         const buyDateIdx = AppState.availableDates.indexOf(position.buyDate);
@@ -792,9 +838,16 @@ function renderMyPositions() {
     const positionItems = Object.entries(positions).map(([code, pos]) => {
         const klineData = window.KLINE_DATA_GLOBAL[code];
         const stockName = klineData?.name || '未知';
-        const currentPrice = klineData?.values?.length > 0
-            ? klineData.values[klineData.values.length - 1][1]
-            : pos.cost;
+
+        // 从K线数据中获取当前日期的价格
+        let currentPrice = pos.cost; // 默认使用成本价
+        if (klineData && klineData.dates && klineData.values) {
+            const targetDate = formatDate(AppState.currentDate); // 转换为 YYYY-MM-DD 格式
+            const dateIdx = klineData.dates.indexOf(targetDate);
+            if (dateIdx >= 0 && klineData.values[dateIdx]) {
+                currentPrice = klineData.values[dateIdx][1]; // 收盘价
+            }
+        }
 
         const profit = (currentPrice - pos.cost) * pos.quantity;
         const profitRate = ((currentPrice - pos.cost) / pos.cost * 100);
@@ -865,68 +918,6 @@ function calculateFees(amount, isSell = false) {
         stampTax: stampTax,
         total: commission + stampTax
     };
-}
-
-// 底仓买入
-function buyStock() {
-    const code = AppState.selectedStock?.code;
-    if (!code) {
-        showToast('请先选择股票', 'warning');
-        return;
-    }
-
-    const price = parseFloat(document.getElementById('buyPrice').value);
-    const quantity = parseInt(document.getElementById('buyQuantity').value);
-
-    if (!price || price <= 0) {
-        showToast('请输入有效的买入价格', 'warning');
-        return;
-    }
-
-    if (!quantity || quantity % CONFIG.TRADING_UNIT !== 0) {
-        showToast(`买入股数必须是${CONFIG.TRADING_UNIT}的整数倍`, 'warning');
-        return;
-    }
-
-    const amount = price * quantity;
-    const available = AppState.account.available + AppState.account.frozen;
-
-    if (amount > available) {
-        showToast('可用资金不足', 'warning');
-        return;
-    }
-
-    // 创建待执行的买入操作
-    const currentIdx = AppState.availableDates.indexOf(AppState.currentDate);
-    const nextDate = AppState.availableDates[currentIdx + 1];
-
-    if (!nextDate) {
-        showToast('已是最后一个交易日', 'warning');
-        return;
-    }
-
-    const tradeRecord = {
-        id: generateId(),
-        date: nextDate,  // 实际执行日期
-        orderDate: AppState.currentDate,  // 下单日期
-        code: code,
-        name: AppState.selectedStock.name,
-        type: 'BUY',
-        price: price,
-        quantity: quantity,
-        amount: amount,
-        fees: calculateFees(amount).total,
-        status: 'PENDING'
-    };
-
-    AppState.trades.push(tradeRecord);
-
-    // 冻结资金
-    AppState.account.frozen += amount;
-
-    showToast(`买入委托已提交，将于${formatDate(nextDate)}执行`, 'success');
-    saveData();
-    renderTradeRecords();
 }
 
 // 设置条件单（涨停买入）
@@ -1050,7 +1041,7 @@ function addPosition() {
     renderNextDayActions();
 }
 
-// 卖出持仓
+// 卖出持仓 - 创建待执行订单（T+1确认）
 function sellStock() {
     const code = AppState.selectedStock?.code;
     if (!code) {
@@ -1092,7 +1083,7 @@ function sellStock() {
 
     const tradeRecord = {
         id: generateId(),
-        date: AppState.currentDate,
+        date: AppState.currentDate,  // 卖出当日成交（T+0卖出，次日到账）
         orderDate: AppState.currentDate,
         code: code,
         name: AppState.selectedStock.name,
@@ -1108,19 +1099,16 @@ function sellStock() {
 
     AppState.trades.push(tradeRecord);
 
-    // 更新持仓
+    // 更新持仓（不改变剩余持仓的成本价）
     position.quantity -= quantity;
     if (position.quantity <= 0) {
         delete AppState.account.positions[code];
-    } else {
-        // 重新计算成本价
-        position.cost = (position.cost * (position.quantity + quantity) - price * quantity) / position.quantity;
     }
 
-    // 更新资金
+    // 更新资金（卖出款当日到账）
     AppState.account.available += netAmount;
 
-    showToast(`卖出成功，净得 ${netAmount.toFixed(2)} 元`, 'success');
+    showToast(`卖出成功，款项已到账`, 'success');
     saveData();
     renderTradeRecords();
     updateAccountInfo();
@@ -1148,18 +1136,27 @@ function executeTrade(trade) {
     const klineData = window.KLINE_DATA_GLOBAL[trade.code];
     if (!klineData) {
         trade.status = 'FAILED';
+        showToast(`无法找到 ${trade.code} 的K线数据`, 'error');
         return;
     }
 
-    // 获取执行日的开盘价（作为实际成交价）
-    const dateIdx = klineData.dates.findIndex(d => d === trade.date.replace(/-/g, ''));
+    // 将 YYYYMMDD 格式转换为 YYYY-MM-DD 格式来查找K线数据
+    const targetDate = formatDate(trade.date);
+
+    // 获取执行日的K线数据
+    const dateIdx = klineData.dates.findIndex(d => d === targetDate);
     if (dateIdx < 0) {
         trade.status = 'FAILED';
+        console.warn(`无法找到 ${trade.code} 在 ${targetDate} 的K线数据`, {
+            tradeDate: trade.date,
+            klineDates: klineData.dates.slice(-5)
+        });
+        showToast(`无法找到 ${trade.code} 在 ${targetDate} 的K线数据`, 'warning');
         return;
     }
 
     const dayData = klineData.values[dateIdx];
-    const actualPrice = dayData[1]; // 开盘价作为实际成交价
+    const actualPrice = dayData[0]; // 开盘价作为实际成交价
 
     if (trade.type === 'BUY' || trade.type === 'ADD') {
         // 买入成交
@@ -1168,11 +1165,13 @@ function executeTrade(trade) {
         trade.fees = calculateFees(trade.actualAmount).total;
         trade.status = 'COMPLETED';
 
-        // 解冻资金
+        // 解冻资金：使用实际成交金额+手续费
+        const totalDeduction = trade.actualAmount + trade.fees;
         AppState.account.frozen -= trade.amount;
+        AppState.account.frozen += (trade.amount - totalDeduction); // 解冻剩余部分
 
-        // 更新可用资金
-        AppState.account.available -= (trade.actualAmount + trade.fees);
+        // 更新可用资金：扣除实际成交金额+手续费
+        AppState.account.available -= totalDeduction;
 
         // 更新持仓
         const position = AppState.account.positions[trade.code];
@@ -1192,26 +1191,9 @@ function executeTrade(trade) {
         showToast(`${trade.name} 买入成交：${trade.quantity}股 @ ¥${actualPrice.toFixed(2)}`, 'success');
 
     } else if (trade.type === 'SELL') {
-        // 卖出成交
-        trade.actualPrice = actualPrice;
-        trade.actualAmount = actualPrice * trade.quantity;
-        trade.fees = calculateFees(trade.actualAmount, true).total;
-        trade.netAmount = trade.actualAmount - trade.fees;
-        trade.status = 'COMPLETED';
-
-        // 更新资金
-        AppState.account.available += trade.netAmount;
-
-        // 更新持仓
-        const position = AppState.account.positions[trade.code];
-        if (position) {
-            position.quantity -= trade.quantity;
-            if (position.quantity <= 0) {
-                delete AppState.account.positions[trade.code];
-            }
-        }
-
-        showToast(`${trade.name} 卖出成交：${trade.quantity}股 @ ¥${actualPrice.toFixed(2)}`, 'success');
+        // SELL 由 sellStock 直接处理，这里不需要重复处理
+        // 卖出款项已在 sellStock 中冻结，在 switchDate 时解冻到可用资金
+        return;
     }
 
     updateAccountInfo();
@@ -1222,12 +1204,27 @@ function executeConditionOrder(order) {
     const klineData = window.KLINE_DATA_GLOBAL[order.code];
     if (!klineData) {
         order.status = 'FAILED';
+        // 解冻资金
+        AppState.account.frozen -= order.amount;
+        AppState.account.available += order.amount;
+        showToast(`无法找到 ${order.code} 的K线数据`, 'error');
         return;
     }
 
-    const dateIdx = klineData.dates.findIndex(d => d === order.date.replace(/-/g, ''));
+    // 将 YYYYMMDD 格式转换为 YYYY-MM-DD 格式来查找K线数据
+    const targetDate = formatDate(order.date);
+
+    const dateIdx = klineData.dates.findIndex(d => d === targetDate);
     if (dateIdx < 0) {
         order.status = 'FAILED';
+        // 解冻资金
+        AppState.account.frozen -= order.amount;
+        AppState.account.available += order.amount;
+        console.warn(`无法找到 ${order.code} 在 ${targetDate} 的K线数据`, {
+            orderDate: order.date,
+            klineDates: klineData.dates.slice(-5)
+        });
+        showToast(`无法找到 ${order.code} 在 ${targetDate} 的K线数据`, 'warning');
         return;
     }
 
@@ -1244,23 +1241,49 @@ function executeConditionOrder(order) {
         order.fees = calculateFees(order.actualAmount).total;
         order.status = 'EXECUTED';
 
-        // 解冻资金
+        // 解冻资金：使用实际成交金额+手续费
+        const totalDeduction = order.actualAmount + order.fees;
         AppState.account.frozen -= order.amount;
+        AppState.account.frozen += (order.amount - totalDeduction); // 解冻剩余部分
 
-        // 更新可用资金
-        AppState.account.available -= (order.actualAmount + order.fees);
+        // 更新可用资金：扣除实际成交金额+手续费
+        AppState.account.available -= totalDeduction;
 
         // 更新持仓
-        AppState.account.positions[order.code] = {
+        const position = AppState.account.positions[order.code];
+        if (position) {
+            const totalCost = position.cost * position.quantity + order.actualAmount;
+            const totalQuantity = position.quantity + order.quantity;
+            position.cost = totalCost / totalQuantity;
+            position.quantity = totalQuantity;
+        } else {
+            AppState.account.positions[order.code] = {
+                quantity: order.quantity,
+                cost: actualPrice,
+                buyDate: order.date
+            };
+        }
+
+        // 创建买入交易记录（用于收益统计）
+        const tradeRecord = {
+            id: generateId(),
+            date: order.date,
+            orderDate: order.orderDate,
+            code: order.code,
+            name: order.name,
+            type: 'BUY',
+            price: actualPrice,
             quantity: order.quantity,
-            cost: actualPrice,
-            buyDate: order.date
+            amount: actualPrice * order.quantity,
+            fees: order.fees,
+            status: 'COMPLETED'
         };
+        AppState.trades.push(tradeRecord);
 
         showToast(`条件单触发：${order.name} 以涨停价 ¥${actualPrice.toFixed(2)} 买入 ${order.quantity}股`, 'success');
     } else {
         order.status = 'EXPIRED';
-        // 解冻资金
+        // 解冻资金：全额解冻回可用资金
         AppState.account.frozen -= order.amount;
         AppState.account.available += order.amount;
         showToast(`条件单过期：${order.name} 未触及涨停价`, 'warning');
@@ -1292,8 +1315,18 @@ function updateAccountInfo() {
     let positionValue = 0;
     Object.keys(AppState.account.positions).forEach(code => {
         const position = AppState.account.positions[code];
-        const stock = getStockData(code);
-        const currentPrice = stock ? stock.price : position.cost;
+        const klineData = window.KLINE_DATA_GLOBAL[code];
+
+        // 从K线数据中获取当前日期的价格
+        let currentPrice = position.cost;
+        if (klineData && klineData.dates && klineData.values) {
+            const targetDate = formatDate(AppState.currentDate); // 转换为 YYYY-MM-DD 格式
+            const dateIdx = klineData.dates.indexOf(targetDate);
+            if (dateIdx >= 0 && klineData.values[dateIdx]) {
+                currentPrice = klineData.values[dateIdx][1]; // 收盘价
+            }
+        }
+
         positionValue += position.quantity * currentPrice;
     });
 
@@ -1346,7 +1379,7 @@ function renderNextDayActions() {
 
     const allActions = [
         ...pendingTrades.map(t => ({
-            type: t.type === 'BUY' ? '底仓买入' : '加仓',
+            type: t.type === 'BUY' ? '开盘买入' : '加仓',
             code: t.code,
             name: t.name,
             price: t.price,
@@ -1420,9 +1453,18 @@ function renderPositions() {
     }
 
     tbody.innerHTML = positions.map(([code, pos]) => {
-        const stock = getStockData(code) || { price: pos.cost, name: '未知' };
         const klineData = window.KLINE_DATA_GLOBAL[code];
-        const currentPrice = klineData ? stock.price : pos.cost;
+        const stockName = klineData?.name || '未知';
+
+        // 从K线数据中获取当前日期的价格
+        let currentPrice = pos.cost; // 默认使用成本价
+        if (klineData && klineData.dates && klineData.values) {
+            const targetDate = formatDate(AppState.currentDate); // 转换为 YYYY-MM-DD 格式
+            const dateIdx = klineData.dates.indexOf(targetDate);
+            if (dateIdx >= 0 && klineData.values[dateIdx]) {
+                currentPrice = klineData.values[dateIdx][1]; // 收盘价
+            }
+        }
 
         const profit = (currentPrice - pos.cost) * pos.quantity;
         const profitRate = ((currentPrice - pos.cost) / pos.cost * 100);
@@ -1434,8 +1476,8 @@ function renderPositions() {
 
         return `
             <tr>
-                <td>${code.split('.')[0]}</td>
-                <td>${stock.name}</td>
+                <td class="clickable-cell" onclick="viewPositionChart('${code}')">${code.split('.')[0]}</td>
+                <td class="clickable-cell" onclick="viewPositionChart('${code}')">${stockName}</td>
                 <td>${pos.quantity}</td>
                 <td>¥${pos.cost.toFixed(2)}</td>
                 <td>¥${currentPrice.toFixed(2)}</td>
@@ -1452,18 +1494,90 @@ function renderPositions() {
 }
 
 function quickSell(code) {
-    selectStock(code);
-    // 切换到交易面板的卖出区域
-    document.querySelector('.tab-btn[data-tab="positions"]').click();
-    // 填充卖出数量
+    // 检查是否可卖出（T+1）
     const position = AppState.account.positions[code];
-    document.getElementById('sellQuantity').value = position.quantity;
+    if (!position) {
+        showToast('没有该股票持仓', 'warning');
+        return;
+    }
+
+    const buyDateIdx = AppState.availableDates.indexOf(position.buyDate);
+    const currentDateIdx = AppState.availableDates.indexOf(AppState.currentDate);
+    const canSell = currentDateIdx > buyDateIdx;
+
+    if (!canSell) {
+        const daysWait = buyDateIdx + 1 - currentDateIdx;
+        showToast(`T+1交易，还需等待${daysWait}个交易日`, 'warning');
+        return;
+    }
+
+    // 获取当前价格（从K线数据获取当前日期的收盘价）
+    const klineData = window.KLINE_DATA_GLOBAL[code];
+    let currentPrice = position.cost;
+    if (klineData && klineData.dates && klineData.values) {
+        const targetDate = formatDate(AppState.currentDate);
+        const dateIdx = klineData.dates.indexOf(targetDate);
+        if (dateIdx >= 0 && klineData.values[dateIdx]) {
+            currentPrice = klineData.values[dateIdx][1]; // 收盘价
+        }
+    }
+
+    // 计算卖出金额
+    const amount = currentPrice * position.quantity;
+    const fees = calculateFees(amount, true);
+    const netAmount = amount - fees.total;
+    const profit = (currentPrice - position.cost) * position.quantity;
+    const profitRate = ((currentPrice - position.cost) / position.cost * 100);
+
+    // 显示确认对话框
+    showConfirmModal(
+        `卖出 ${klineData?.name || code}\n价格: ¥${currentPrice.toFixed(2)} | 数量: ${position.quantity}股\n手续费: ¥${fees.total.toFixed(2)} | 净得: ¥${netAmount.toFixed(2)}\n盈亏: ${profit >= 0 ? '+' : ''}${profit.toFixed(2)} (${profitRate >= 0 ? '+' : ''}${profitRate.toFixed(2)}%)`,
+        () => {
+            // 执行卖出
+            const tradeRecord = {
+                id: generateId(),
+                date: AppState.currentDate,
+                orderDate: AppState.currentDate,
+                code: code,
+                name: klineData?.name || '未知',
+                type: 'SELL',
+                price: currentPrice,
+                quantity: position.quantity,
+                amount: amount,
+                fees: fees.total,
+                netAmount: netAmount,
+                positionCost: position.cost * position.quantity,
+                status: 'COMPLETED'
+            };
+
+            AppState.trades.push(tradeRecord);
+
+            // 更新持仓（删除持仓）
+            delete AppState.account.positions[code];
+
+            // 更新资金（卖出款冻结，次日解冻到可用资金）
+            AppState.account.frozen += netAmount;
+
+            // 更新界面
+            renderPositions();
+            renderMyPositions();
+            updateAccountInfo();
+
+            saveData();
+
+            showToast(`卖出成功，净得 ¥${netAmount.toFixed(2)}元`, 'success');
+        }
+    );
 }
 
 function updateSummaryStats() {
-    const completedTrades = AppState.trades.filter(t => t.status === 'COMPLETED');
+    const completedTrades = AppState.trades.filter(t => t.status === 'COMPLETED' || t.status === 'EXECUTED');
     const sells = completedTrades.filter(t => t.type === 'SELL');
     const buys = completedTrades.filter(t => t.type === 'BUY' || t.type === 'ADD');
+    const conditionBuys = completedTrades.filter(t => t.type === 'CONDITION_BUY' && t.status === 'EXECUTED');
+
+    // 合并所有买入记录并按日期排序（FIFO）
+    const allBuys = [...buys, ...conditionBuys].sort((a, b) => a.date.localeCompare(b.date));
 
     // 计算胜率
     let profitCount = 0;
@@ -1471,20 +1585,51 @@ function updateSummaryStats() {
     let totalProfit = 0;
     let totalFees = 0;
 
-    sells.forEach(sell => {
-        // 找到对应的买入记录
-        const buy = buys.find(b => b.code === sell.code && b.status === 'COMPLETED');
-        if (buy) {
-            const buyCost = buy.price * buy.quantity;
+    // 按日期排序卖出记录
+    const sortedSells = [...sells].sort((a, b) => a.date.localeCompare(b.date));
+
+    // 使用FIFO方式匹配买卖记录
+    const buyQueue = []; // 存储当前股票的待匹配买入记录
+    let currentCode = null;
+
+    sortedSells.forEach(sell => {
+        totalFees += sell.fees || 0;
+
+        // 切换到新股票时，清空之前的队列
+        if (currentCode !== sell.code) {
+            buyQueue.length = 0;
+            currentCode = sell.code;
+        }
+
+        // 找到对应股票的买入记录（FIFO）
+        let remainingQuantity = sell.quantity;
+        let totalBuyCost = 0;
+
+        for (let i = 0; i < allBuys.length && remainingQuantity > 0; i++) {
+            const buy = allBuys[i];
+            if (buy.code === sell.code && !buy.used) {
+                const matchQuantity = Math.min(buy.quantity - (buy.usedQuantity || 0), remainingQuantity);
+                totalBuyCost += buy.price * matchQuantity;
+
+                if (buy.usedQuantity === undefined) buy.usedQuantity = 0;
+                buy.usedQuantity += matchQuantity;
+                remainingQuantity -= matchQuantity;
+
+                if (buy.usedQuantity >= buy.quantity) {
+                    buy.used = true;
+                }
+            }
+        }
+
+        if (totalBuyCost > 0) {
             const sellRevenue = sell.netAmount;
-            const profit = sellRevenue - buyCost;
+            const profit = sellRevenue - totalBuyCost;
 
             if (profit > 0) profitCount++;
             else if (profit < 0) lossCount++;
 
             totalProfit += profit;
         }
-        totalFees += sell.fees || 0;
     });
 
     const totalTrades = profitCount + lossCount;
@@ -1607,12 +1752,6 @@ function initEventListeners() {
     document.getElementById('stockSearch').addEventListener('keypress', (e) => {
         if (e.key === 'Enter') searchStock();
     });
-
-    // 买入按钮
-    document.getElementById('btnBuy').addEventListener('click', () => {
-        showConfirmModal('确认买入', () => buyStock());
-    });
-
     // 条件单按钮
     document.getElementById('btnConditionOrder').addEventListener('click', () => {
         showConfirmModal('确认设置条件单', () => setConditionOrder());
@@ -1631,10 +1770,6 @@ function initEventListeners() {
     // 连板天数过滤
     document.getElementById('limitDaysFilter').addEventListener('change', renderLadderList);
 
-    // 计算买入金额
-    document.getElementById('buyPrice').addEventListener('input', calculateBuyAmount);
-    document.getElementById('buyQuantity').addEventListener('input', calculateBuyAmount);
-
     // K线图缩放控制
     document.getElementById('zoomIn').addEventListener('click', () => {
         AppState.klineChart?.dispatchAction({ type: 'zoom', zoomSize: 20 });
@@ -1652,13 +1787,23 @@ function initEventListeners() {
             updateKlineChart(AppState.selectedStock.code);
         }
     });
-}
 
-function calculateBuyAmount() {
-    const price = parseFloat(document.getElementById('buyPrice').value) || 0;
-    const quantity = parseInt(document.getElementById('buyQuantity').value) || 0;
-    const amount = price * quantity;
-    document.getElementById('buyAmount').textContent = `${formatNumber(amount)} 元`;
+    // 底部日期导航按钮 - 使用全局函数
+    const prevDayBottom = document.getElementById('prevDayBottom');
+    const nextDayBottom = document.getElementById('nextDayBottom');
+
+    if (prevDayBottom) {
+        prevDayBottom.onclick = window.goToPrevDay;
+    }
+    if (nextDayBottom) {
+        nextDayBottom.onclick = window.goToNextDay;
+    }
+
+    // 重置按钮
+    document.getElementById('btnReset').addEventListener('click', showResetModal);
+    document.getElementById('btnResetNoSave').addEventListener('click', () => resetSystem(false));
+    document.getElementById('btnResetSave').addEventListener('click', () => resetSystem(true));
+    document.getElementById('btnResetCancel').addEventListener('click', hideResetModal);
 }
 
 // 确认对话框
@@ -1677,6 +1822,136 @@ function showConfirmModal(message, onConfirm) {
     };
 
     modal.classList.add('show');
+}
+
+// ==================== 重置功能 ====================
+function showResetModal() {
+    document.getElementById('resetModal').classList.add('show');
+}
+
+function hideResetModal() {
+    document.getElementById('resetModal').classList.remove('show');
+}
+
+function resetSystem(saveData = false) {
+    if (saveData) {
+        // 导出数据
+        const exportData = {
+            trades: AppState.trades,
+            conditionOrders: AppState.conditionOrders,
+            currentSummary: {
+                totalTrades: 0,
+                profitTrades: 0,
+                lossTrades: 0,
+                winRate: 0,
+                totalProfit: 0,
+                totalFees: 0
+            }
+        };
+
+        // 计算当前收益统计
+        const completedTrades = AppState.trades.filter(t => t.status === 'COMPLETED' || t.status === 'EXECUTED');
+        const sells = completedTrades.filter(t => t.type === 'SELL');
+        const buys = completedTrades.filter(t => t.type === 'BUY' || t.type === 'ADD');
+        const conditionBuys = completedTrades.filter(t => t.type === 'CONDITION_BUY' && t.status === 'EXECUTED');
+        const allBuys = [...buys, ...conditionBuys].sort((a, b) => a.date.localeCompare(b.date));
+
+        let profitCount = 0, lossCount = 0, totalProfit = 0, totalFees = 0;
+        const sortedSells = [...sells].sort((a, b) => a.date.localeCompare(b.date));
+        const buyQueue = [];
+        let currentCode = null;
+
+        sortedSells.forEach(sell => {
+            totalFees += sell.fees || 0;
+            if (currentCode !== sell.code) {
+                buyQueue.length = 0;
+                currentCode = sell.code;
+            }
+
+            let remainingQuantity = sell.quantity;
+            let totalBuyCost = 0;
+
+            for (let i = 0; i < allBuys.length && remainingQuantity > 0; i++) {
+                const buy = allBuys[i];
+                if (buy.code === sell.code && !buy.used) {
+                    const matchQuantity = Math.min(buy.quantity - (buy.usedQuantity || 0), remainingQuantity);
+                    totalBuyCost += buy.price * matchQuantity;
+
+                    if (buy.usedQuantity === undefined) buy.usedQuantity = 0;
+                    buy.usedQuantity += matchQuantity;
+                    remainingQuantity -= matchQuantity;
+
+                    if (buy.usedQuantity >= buy.quantity) {
+                        buy.used = true;
+                    }
+                }
+            }
+
+            if (totalBuyCost > 0) {
+                const sellRevenue = sell.netAmount;
+                const profit = sellRevenue - totalBuyCost;
+                if (profit > 0) profitCount++;
+                else if (profit < 0) lossCount++;
+                totalProfit += profit;
+            }
+        });
+
+        exportData.currentSummary.totalTrades = profitCount + lossCount;
+        exportData.currentSummary.profitTrades = profitCount;
+        exportData.currentSummary.lossTrades = lossCount;
+        exportData.currentSummary.winRate = profitCount + lossCount > 0 ? (profitCount / (profitCount + lossCount) * 100) : 0;
+        exportData.currentSummary.totalProfit = totalProfit;
+        exportData.currentSummary.totalFees = totalFees;
+
+        // 下载文件
+        const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `交易记录_${AppState.currentDate}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+
+        showToast('数据已保存，系统重置中...', 'success');
+    }
+
+    // 重置账户状态
+    AppState.account = {
+        initialFund: 100000,
+        available: 100000,
+        positions: {},
+        frozen: 0
+    };
+
+    // 清空交易记录和条件单
+    AppState.trades = [];
+    AppState.conditionOrders = [];
+
+    // 清空选中股票
+    AppState.selectedStock = null;
+
+    // 更新界面
+    updateAccountInfo();
+    renderMyPositions();
+    renderPositions();
+    renderTradeRecords();
+    renderConditionOrders();
+    renderNextDayActions();
+    updateSummaryStats();
+
+    document.getElementById('selectedStock').innerHTML = '<p>请从左侧选择一只股票</p>';
+    document.getElementById('stockInfo').innerHTML = '<h3 id="stockName">选择一只股票查看K线</h3>';
+
+    // 清空K线图
+    if (AppState.klineChart) {
+        AppState.klineChart.clear();
+    }
+
+    // 清空本地存储
+    localStorage.removeItem('tradeSimData');
+
+    hideResetModal();
+    showToast('系统已重置', 'success');
 }
 
 // ==================== 标签页初始化 ====================
