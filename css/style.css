@@ -46,6 +46,30 @@ body {
     font-weight: 600;
 }
 
+.mobile-link {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.15);
+    color: white;
+    text-decoration: none;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 13px;
+    margin-top: 8px;
+    transition: all 0.2s;
+}
+
+.mobile-link:hover {
+    background: rgba(255, 255, 255, 0.25);
+    transform: translateY(-1px);
+}
+
+.mobile-link svg {
+    width: 18px;
+    height: 18px;
+}
+
 .date-selector {
     display: flex;
     align-items: center;

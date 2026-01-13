@@ -5,3 +5,4 @@ akshare
 pyarrow
 tqdm
 requests
+rich
