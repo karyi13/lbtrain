@@ -13,7 +13,13 @@
       "Bash(node -e \"const fs = require\\(''fs''\\); const c = fs.readFileSync\\(''C:/Users/Administrator/Desktop/lbgpT/lbceshi/data/kline_data.js'', ''utf8''\\); const m = c.match\\(/.{6}\\\\.SZ.*?\\\\{[\\\\s\\\\S]{0,500}\\\\}/g\\); if \\(m\\) { console.log\\(''Sample stock data:''\\); console.log\\(m[0].substring\\(0, 800\\)\\); }\")",
       "Bash(node -e \"const fs = require\\(''fs''\\); const c = fs.readFileSync\\(''C:/Users/Administrator/Desktop/lbgpT/lbmoni/data/kline_data.js'', ''utf8''\\); const m = c.match\\(/.{6}\\\\.SZ.*?\\\\{[\\\\s\\\\S]{0,500}\\\\}/g\\); if \\(m\\) { console.log\\(''Sample stock data:''\\); console.log\\(m[0].substring\\(0, 1000\\)\\); }\")",
       "Bash(node -e \"const fs = require\\(''fs''\\); const c = fs.readFileSync\\(''C:/Users/Administrator/Desktop/lbgpT/lbmoni/data/kline_data.js'', ''utf8''\\); const m = c.match\\(/''values'':\\\\s*\\\\[\\\\[\\([\\\\d.,\\\\s-]+\\)\\\\]\\\\]/\\); if \\(m\\) { console.log\\(''Values format sample:'', m[0]\\); } else { console.log\\(''Looking for values differently...''\\); const idx = c.indexOf\\(''values''\\); console.log\\(''Context:'', c.substring\\(idx, idx+200\\)\\); }\")",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(pkill:*)",
+      "Bash(dir:*)",
+      "Bash(ls:*)",
+      "Bash(python -c:*)",
+      "Bash(python:*)",
+      "Bash(git add:*)"
     ]
   }
 }
