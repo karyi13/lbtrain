@@ -2,6 +2,25 @@
  * 连板股票模拟交易训练系统 - 核心逻辑
  */
 
+// ==================== K线数据获取辅助函数 ====================
+// 优先使用精简版数据，如果找不到则尝试完整数据（加载后可用）
+function getKlineData(code) {
+    // 先查精简版
+    const coreData = window.KLINE_DATA_CORE?.[code];
+    if (coreData) return coreData;
+    // 再查完整版
+    const globalData = window.KLINE_DATA_GLOBAL?.[code];
+    return globalData || null;
+}
+
+// 获取所有K线数据（用于检查）
+function getAllKlineData() {
+    const core = window.KLINE_DATA_CORE || {};
+    const global = window.KLINE_DATA_GLOBAL || {};
+    // 合并数据
+    return { ...global, ...core }; // global 后加载，优先级更高
+}
+
 // ==================== 全局状态管理 ====================
 const AppState = {
     // 当前交易日
@@ -101,7 +120,7 @@ async function initApp() {
 function waitForData() {
     return new Promise((resolve, reject) => {
         const checkData = () => {
-            if (window.LADDER_DATA && window.KLINE_DATA_GLOBAL) {
+            if (window.LADDER_DATA && window.KLINE_DATA_CORE) {
                 resolve();
             } else {
                 setTimeout(checkData, 100);
@@ -386,9 +405,9 @@ function calculateZoomStart(totalCount, defaultCount) {
 function updateKlineChart(code) {
     console.log('updateKlineChart called with code:', code);
     console.log('ECharts available:', typeof echarts !== 'undefined');
-    console.log('KLINE_DATA_GLOBAL keys:', Object.keys(window.KLINE_DATA_GLOBAL || {}).slice(0, 5));
+    console.log('KLINE_DATA keys:', Object.keys(getAllKlineData()).slice(0, 5));
 
-    const klineData = window.KLINE_DATA_GLOBAL[code];
+    const klineData = getKlineData(code);
     console.log('klineData for', code, ':', klineData ? 'found' : 'not found');
 
     if (!klineData) {
@@ -629,7 +648,7 @@ function updateKlineChart(code) {
 
 // ==================== 交易面板更新 ====================
 function updateStockPanel(stock) {
-    const klineData = window.KLINE_DATA_GLOBAL[stock.code];
+    const klineData = getKlineData(stock.code);
 
     // 更新股票信息
     document.getElementById('stockName').textContent = `${stock.name} (${stock.code})`;
@@ -684,7 +703,7 @@ function updateStockPanel(stock) {
 
 function updatePositionInfo(code) {
     const position = AppState.account.positions[code];
-    const klineData = window.KLINE_DATA_GLOBAL[code];
+    const klineData = getKlineData(code);
 
     // 从K线数据中获取当前日期的价格
     let currentPrice = position ? position.cost : 0;
@@ -747,7 +766,7 @@ function searchStock() {
     }
 
     const results = [];
-    const klineData = window.KLINE_DATA_GLOBAL || {};
+    const klineData = getAllKlineData();
 
     // 搜索K线数据中的股票
     for (const [code, data] of Object.entries(klineData)) {
@@ -795,7 +814,7 @@ function renderSearchResults(results) {
 
 // 根据代码选择股票
 function selectStockByCode(code) {
-    const klineData = window.KLINE_DATA_GLOBAL[code];
+    const klineData = getKlineData(code);
     if (!klineData) {
         showToast('股票数据不存在', 'error');
         return;
@@ -836,7 +855,7 @@ function renderMyPositions() {
     }
 
     const positionItems = Object.entries(positions).map(([code, pos]) => {
-        const klineData = window.KLINE_DATA_GLOBAL[code];
+        const klineData = getKlineData(code);
         const stockName = klineData?.name || '未知';
 
         // 从K线数据中获取当前日期的价格
@@ -873,7 +892,7 @@ function renderMyPositions() {
 
 // 查看持仓股票的K线图
 function viewPositionChart(code) {
-    const klineData = window.KLINE_DATA_GLOBAL[code];
+    const klineData = getKlineData(code);
     if (!klineData) {
         showToast('K线数据不存在', 'error');
         return;
@@ -1133,7 +1152,7 @@ function executePendingOrders(executeDate) {
 }
 
 function executeTrade(trade) {
-    const klineData = window.KLINE_DATA_GLOBAL[trade.code];
+    const klineData = getKlineData(trade.code);
     if (!klineData) {
         trade.status = 'FAILED';
         showToast(`无法找到 ${trade.code} 的K线数据`, 'error');
@@ -1201,7 +1220,7 @@ function executeTrade(trade) {
 }
 
 function executeConditionOrder(order) {
-    const klineData = window.KLINE_DATA_GLOBAL[order.code];
+    const klineData = getKlineData(order.code);
     if (!klineData) {
         order.status = 'FAILED';
         // 解冻资金
@@ -1315,7 +1334,7 @@ function updateAccountInfo() {
     let positionValue = 0;
     Object.keys(AppState.account.positions).forEach(code => {
         const position = AppState.account.positions[code];
-        const klineData = window.KLINE_DATA_GLOBAL[code];
+        const klineData = getKlineData(code);
 
         // 从K线数据中获取当前日期的价格
         let currentPrice = position.cost;
@@ -1453,7 +1472,7 @@ function renderPositions() {
     }
 
     tbody.innerHTML = positions.map(([code, pos]) => {
-        const klineData = window.KLINE_DATA_GLOBAL[code];
+        const klineData = getKlineData(code);
         const stockName = klineData?.name || '未知';
 
         // 从K线数据中获取当前日期的价格
@@ -1512,7 +1531,7 @@ function quickSell(code) {
     }
 
     // 获取当前价格（从K线数据获取当前日期的收盘价）
-    const klineData = window.KLINE_DATA_GLOBAL[code];
+    const klineData = getKlineData(code);
     let currentPrice = position.cost;
     if (klineData && klineData.dates && klineData.values) {
         const targetDate = formatDate(AppState.currentDate);
@@ -1930,6 +1949,13 @@ function resetSystem(saveData = false) {
     // 清空选中股票
     AppState.selectedStock = null;
 
+    // 清空本地存储（使用正确的键名）
+    localStorage.removeItem('tradingSimulatorData');
+
+    // 先关闭弹窗
+    hideResetModal();
+    showToast('系统已重置', 'success');
+
     // 更新界面
     updateAccountInfo();
     renderMyPositions();
@@ -1941,16 +1967,10 @@ function resetSystem(saveData = false) {
 
     // 更新股票信息显示
     document.getElementById('selectedStock').innerHTML = '<p>请从左侧选择一只股票</p>';
-    document.getElementById('stockInfo').innerHTML = '<h3 id="stockName">选择一只股票查看K线</h3>';
-
-    // 清空本地存储
-    localStorage.removeItem('tradeSimData');
-
-    // 保存重置后的状态
-    saveData();
-
-    hideResetModal();
-    showToast('系统已重置', 'success');
+    document.getElementById('stockName').textContent = '选择一只股票查看K线';
+    document.getElementById('stockCode').textContent = '--';
+    document.getElementById('currentPrice').textContent = '--';
+    document.getElementById('limitUpDays').textContent = '--';
 }
 
 // ==================== 标签页初始化 ====================

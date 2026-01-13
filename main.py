@@ -1023,19 +1023,37 @@ def generate_ladder_data_for_html(ladder_file: str = config.DEFAULT_LADDER_FILE,
 
 
 
-def generate_kline_data(input_file: str = config.DEFAULT_OUTPUT_FILE, output_file: str = config.DEFAULT_KLINE_JS_FILE, chunk_size: int = config.CHUNK_SIZE):
-    """Generate K-line JS data file for HTML visualization."""
+def generate_kline_data(input_file: str = config.DEFAULT_OUTPUT_FILE, output_file: str = config.DEFAULT_KLINE_JS_FILE, chunk_size: int = config.CHUNK_SIZE, ladder_only: bool = True):
+    """Generate K-line JS data file for HTML visualization.
+
+    Args:
+        ladder_only: If True, only generate K-line data for limit-up stocks in ladder_data.js
+    """
     logger.info("Starting K-line data generation", {
         "input_file": input_file,
         "output_file": output_file,
-        "chunk_size": chunk_size
+        "chunk_size": chunk_size,
+        "ladder_only": ladder_only
     })
 
     if not os.path.exists(input_file):
         logger.error(f"Input file not found: {input_file}")
         return
 
-    # 由于pandas的read_parquet不支持chunksize参数，我们直接加载整个文件
+    # 获取连板股票代码列表
+    limit_up_symbols = set()
+    if ladder_only:
+        ladder_file = os.path.join(os.path.dirname(output_file) if output_file else 'data', 'ladder_data.js')
+        if os.path.exists(ladder_file):
+            import re
+            with open(ladder_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+                limit_up_symbols = set(re.findall(r'"code":\s*"([^"]+)"', content))
+            logger.info(f"Loaded {len(limit_up_symbols)} limit-up stocks from ladder_data.js")
+        else:
+            logger.warning(f"Ladder file not found: {ladder_file}, generating for all stocks")
+
+    # 加载数据
     timer_id = performance_monitor.start_timer("load_kline_data")
     df = pd.read_parquet(input_file)
     load_duration = performance_monitor.end_timer(timer_id)
@@ -1043,6 +1061,11 @@ def generate_kline_data(input_file: str = config.DEFAULT_OUTPUT_FILE, output_fil
         "duration_seconds": round(load_duration, 4),
         "columns_count": len(df.columns)
     })
+
+    # 如果只生成连板股票K线，则先筛选
+    if limit_up_symbols:
+        df = df[df['symbol'].isin(limit_up_symbols)].copy()
+        logger.info(f"Filtered to {len(df)} records for {len(limit_up_symbols)} limit-up stocks")
 
     timer_id = performance_monitor.start_timer("process_kline_data")
     df_sorted = df.sort_values(['symbol', 'date'])
@@ -1080,6 +1103,67 @@ def generate_kline_data(input_file: str = config.DEFAULT_OUTPUT_FILE, output_fil
         "symbols_count": len(kline_data)
     })
 
+    # 生成精简版（只包含最近日期的连板股票）
+    generate_kline_data_core(input_file)
+
+
+def generate_kline_data_core(input_file: str = config.DEFAULT_OUTPUT_FILE):
+    """Generate core K-line JS data file（只包含最近日期的连板股票）"""
+    logger.info("Starting core K-line data generation...")
+
+    # 获取 ladder_data.js 并解析最近日期的股票
+    ladder_file = os.path.join('data', 'ladder_data.js')
+    if not os.path.exists(ladder_file):
+        logger.warning(f"Ladder file not found: {ladder_file}")
+        return
+
+    with open(ladder_file, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    # 解析 JSON
+    json_start = content.find('{')
+    json_end = content.rfind('}') + 1
+    ladder_data = json.loads(content[json_start:json_end])
+
+    # 获取最后一个日期
+    dates = sorted(ladder_data.keys())
+    last_date = dates[-1]
+
+    # 获取最近日期的股票代码
+    recent_stock_codes = set()
+    for board in ladder_data[last_date].values():
+        for stock in board:
+            recent_stock_codes.add(stock['code'])
+
+    logger.info(f"Core K-line data for date {last_date}: {len(recent_stock_codes)} stocks")
+
+    # 读取 parquet 并筛选
+    df = pd.read_parquet(input_file)
+    df_recent = df[df['symbol'].isin(recent_stock_codes)].copy()
+    df_recent = df_recent.sort_values(['symbol', 'date'])
+    df_recent['date_formatted'] = pd.to_datetime(df_recent['date'], format='%Y%m%d').dt.strftime('%Y-%m-%d')
+
+    # 生成精简版 K 线数据
+    kline_data = {}
+    grouped = df_recent.groupby('symbol')
+
+    for symbol, group in grouped:
+        kline_data[symbol] = {
+            'name': group['name'].iloc[0],
+            'dates': group['date_formatted'].tolist(),
+            'values': group[['open', 'close', 'low', 'high']].values.tolist(),
+            'volumes': group['volume'].tolist()
+        }
+
+    # 保存精简版（多行格式）
+    core_output_file = os.path.join('data', 'kline_data_core.js')
+    js_content = f"// 精简版K线数据（只含最近日期连板股票）\nwindow.KLINE_DATA_CORE = {json.dumps(kline_data, ensure_ascii=False)};"
+    with open(core_output_file, 'w', encoding='utf-8') as f:
+        f.write(js_content)
+
+    logger.info(f"Saved core K-line data to {core_output_file}")
+    logger.info(f"Core symbols count: {len(kline_data)}")
+
 
 def main():
     parser = argparse.ArgumentParser(description='A股连板分析工具 - 统一入口')
@@ -1092,6 +1176,7 @@ def main():
     parser.add_argument('--incremental', action='store_true', default=True, help='是否增量更新')
     parser.add_argument('--full-refresh', action='store_true', help='完全刷新模式')
     parser.add_argument('--chunk-size', type=int, default=config.CHUNK_SIZE, help='数据处理块大小，用于内存优化')
+    parser.add_argument('--all-stocks', action='store_true', help='生成全部股票K线数据（默认只生成连板股票）')
 
     args = parser.parse_args()
 
@@ -1125,7 +1210,7 @@ def main():
         generate_ladder_data_for_html(chunk_size=args.chunk_size)
     elif args.command in ['generate-kline', 'kline', 'k']:
         out_js = args.output_file if args.output_file else config.DEFAULT_KLINE_JS_FILE
-        generate_kline_data(input_file=args.input_file, output_file=out_js, chunk_size=args.chunk_size)
+        generate_kline_data(input_file=args.input_file, output_file=out_js, chunk_size=args.chunk_size, ladder_only=not args.all_stocks)
     elif args.command == 'full':
         # 执行完整流程
         logger.info("开始执行完整分析流程...")
@@ -1145,8 +1230,9 @@ def main():
         # 3. 生成阶梯数据
         generate_ladder_data_for_html(chunk_size=args.chunk_size)
 
-        # 4. 生成K线数据
-        generate_kline_data(input_file=output_file, output_file=config.DEFAULT_KLINE_JS_FILE, chunk_size=args.chunk_size)
+        # 4. 生成K线数据（默认只生成连板股票）
+        generate_kline_data(input_file=output_file, output_file=config.DEFAULT_KLINE_JS_FILE,
+                            chunk_size=args.chunk_size, ladder_only=not args.all_stocks)
 
         logger.info("完整分析流程完成！")
 

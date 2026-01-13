@@ -302,8 +302,34 @@
         </div>
     </div>
 
-    <script src="data/kline_data.js"></script>
+    <!-- 先加载精简版快速显示 -->
+    <script src="data/kline_data_core.js"></script>
     <script src="data/ladder_data.js"></script>
+    <!-- 后台加载完整版 -->
+    <script>
+        // 后台加载完整版 K 线数据
+        loadFullKlineData();
+
+        function loadFullKlineData() {
+            const script = document.createElement('script');
+            script.src = 'data/kline_data.js';
+            script.async = true;  // 异步加载
+            script.onload = function() {
+                console.log('完整版 K 线数据已加载');
+                // 合并数据：覆盖精简版
+                window.KLINE_DATA = window.KLINE_DATA_GLOBAL || {};
+                delete window.KLINE_DATA_GLOBAL;
+                // 合并到核心数据中
+                if (window.KLINE_DATA_CORE) {
+                    Object.assign(window.KLINE_DATA_CORE, window.KLINE_DATA);
+                }
+            };
+            script.onerror = function() {
+                console.error('完整版 K 线数据加载失败，使用精简版');
+            };
+            document.head.appendChild(script);
+        }
+    </script>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <script src="js/app.js"></script>
 </body>
