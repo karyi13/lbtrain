@@ -1,7 +1,3 @@
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## 项目概述
 
 这是一款A股连板股票模拟交易分析和训练系统，提供K线图表和涨停/跌停阶梯可视化功能。
