@@ -22,7 +22,8 @@
       "Bash(git add:*)",
       "Bash(git pull:*)",
       "Bash(git push)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git reset:*)"
     ]
   }
 }
