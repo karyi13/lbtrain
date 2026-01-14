@@ -20,7 +20,9 @@
       "Bash(python -c:*)",
       "Bash(python:*)",
       "Bash(git add:*)",
-      "Bash(git pull:*)"
+      "Bash(git pull:*)",
+      "Bash(git push)",
+      "Bash(git commit:*)"
     ]
   }
 }
