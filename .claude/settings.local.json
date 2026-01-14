@@ -19,7 +19,8 @@
       "Bash(ls:*)",
       "Bash(python -c:*)",
       "Bash(python:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git pull:*)"
     ]
   }
 }

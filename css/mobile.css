@@ -151,13 +151,14 @@ html, body {
     overflow-y: auto;
     overflow-x: hidden;
     background: var(--bg-color);
+    -webkit-overflow-scrolling: touch;
 }
 
 /* 页面切换 */
 .page {
     display: none;
     padding: 12px;
-    min-height: 100%;
+    min-height: calc(100% - 24px);
 }
 
 .page.active {
