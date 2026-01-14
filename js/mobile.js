@@ -322,6 +322,7 @@ function updateKlineChart(code) {
     const validVolumes = currentDateIdx >= 0 ? volumes.slice(0, currentDateIdx + 1) : volumes;
 
     const option = {
+        title: { show: false },
         tooltip: {
             trigger: 'item',
             axisPointer: { type: 'cross' },
